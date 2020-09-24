@@ -94,8 +94,6 @@ int main() {
 		auto sleep_time = std::chrono::microseconds(video_reader_state.frame_pst_microsec) - duration_since_start;
 		std::this_thread::sleep_for(sleep_time);
 
-		printf("%d\n", sleep_time);
-
 		if (SDL_PollEvent(&e) != 0) {
 			if (e.type == SDL_QUIT) {
 				quit = true;
