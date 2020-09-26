@@ -3,7 +3,10 @@
 #include <chrono>
 #include <thread>
 #include <iostream>
+#include <atomic>
+
 #include "video_reader.hpp"
+#include "frame_buffer.hpp"
 
 #define SDL_MAIN_HANDLED
 extern "C" {
@@ -16,9 +19,15 @@ extern "C" {
 #define SCREEN_WIDTH 960
 #define SCREEN_HEIGHT 540
 
-int main() {
+void read_frames_to_buffer(VideoReader *video_reader, FrameBuffer *frame_buffer, std::atomic<bool> *quit) {
+	while (!*quit) {
+		video_reader->read_single_frame(*frame_buffer);
+	}
+}
 
+int main() {
 	VideoReader video_reader_state("C:\\Users\\dudko\\OneDrive\\Desktop\\rotating_globe.mp4");
+	FrameBuffer frame_buffer(video_reader_state.width, video_reader_state.height);
 
 	if (SDL_Init(SDL_INIT_VIDEO) == -1) {
 		printf("SDL could not initialize: %s\n", SDL_GetError());
@@ -36,33 +45,23 @@ int main() {
 
 	const auto sdl_window_format = SDL_GetWindowSurface(sdl_window)->format;
 
-	uint8_t* frame_data = nullptr;
-
 	SDL_Rect stretchRect;
 	stretchRect.x = 0;
 	stretchRect.y = 0;
 	stretchRect.w = SCREEN_WIDTH;
 	stretchRect.h = SCREEN_HEIGHT;
 
-	auto quit = false;
+	std::atomic<bool> quit (false);
 	SDL_Event e;
 
 	std::chrono::steady_clock::time_point frame_begin_time, frame_end_time;
 	std::chrono::microseconds duration_since_start;
 
-	while (!quit) {
+	std::thread video_reader_thread (read_frames_to_buffer, &video_reader_state, &frame_buffer, &quit);
 
-		// frame_begin_time = std::chrono::steady_clock::now();
-
-		frame_data = video_reader_state.read_single_frame();
-
-		if (!frame_data) {
-			fprintf(stderr, "Couldn't load the frame");
-			return 1;
-		}
-
+	auto render_from_buffer = [&](uint8_t* frame_data) {
 		auto sdl_frame_surface = SDL_CreateRGBSurfaceFrom(
-			(void*)frame_data,
+			(void*) frame_data,
 			video_reader_state.width,
 			video_reader_state.height,
 			rgb_channel_count * 8,          // bits per pixel = 24
@@ -75,17 +74,24 @@ int main() {
 
 		if (!sdl_frame_surface) {
 			fprintf(stderr, "Couldn't push frame pixels: %s\n", SDL_GetError());
-			return 1;
+			return;
 		}
 
 		if (SDL_BlitScaled(sdl_frame_surface, nullptr, SDL_GetWindowSurface(sdl_window), &stretchRect) < 0) {
 			fprintf(stderr, "Couldn't blit the frame surface: %s\n", SDL_GetError());
-			return 1;
+			return;
 		}
 
 		SDL_UpdateWindowSurface(sdl_window);
-
 		SDL_FreeSurface(sdl_frame_surface);
+	};
+	
+	while (!quit) {
+
+		// frame_begin_time = std::chrono::steady_clock::now();
+		
+
+		frame_buffer.read_frame(render_from_buffer);
 
 		frame_end_time = std::chrono::steady_clock::now();
 
@@ -94,12 +100,16 @@ int main() {
 		auto sleep_time = std::chrono::microseconds(video_reader_state.frame_pst_microsec) - duration_since_start;
 		std::this_thread::sleep_for(sleep_time);
 
+		printf("Sleeptime:  %d\n", sleep_time);
+
 		if (SDL_PollEvent(&e) != 0) {
 			if (e.type == SDL_QUIT) {
 				quit = true;
 			}
 		}
 	}
+
+	video_reader_thread.join();
 
 	SDL_DestroyWindow(sdl_window);
 	SDL_Quit();

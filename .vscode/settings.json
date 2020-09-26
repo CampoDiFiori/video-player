@@ -41,6 +41,10 @@
         "xstddef": "cpp",
         "xstring": "cpp",
         "xtr1common": "cpp",
-        "xutility": "cpp"
+        "xutility": "cpp",
+        "vector": "cpp",
+        "array": "cpp",
+        "mutex": "cpp",
+        "functional": "cpp"
     },
 }

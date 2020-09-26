@@ -27,7 +27,7 @@ find_library(SWRESAMPLE_LIBRARY swresample)
 find_path( SWSCALE_INCLUDE_DIR libswscale/swscale.h )
 find_library(SWSCALE_LIBRARY swscale)
 
-add_executable(cmaketest src/main.cpp "src/video_reader.hpp")
+add_executable(cmaketest src/main.cpp "src/video_reader.hpp" src/frame_buffer.hpp)
 
 target_include_directories(cmaketest PRIVATE 
 	${AVCODEC_INCLUDE_DIR}

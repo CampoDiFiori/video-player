@@ -11,6 +11,7 @@ extern "C" {
 
 #include <memory>
 #include <chrono>
+#include "frame_buffer.hpp"
 
 struct VideoReader {
 	AVFormatContext* av_format_ctx = avformat_alloc_context();
@@ -30,7 +31,6 @@ struct VideoReader {
 	SwsContext* sws_scaler_ctx = nullptr;
 
 	uint16_t width, height;
-	std::unique_ptr<uint8_t[]> frame_data = nullptr;
 
 	VideoReader(const char* filename) {
 
@@ -90,7 +90,6 @@ struct VideoReader {
 
 		width = av_codec_params->width;
 		height = av_codec_params->height;
-		frame_data = std::make_unique<uint8_t[]>(width * height * 4);
 	}
 
 	~VideoReader() {
@@ -107,7 +106,7 @@ struct VideoReader {
 	auto read_first_frame() {
 	}
 
-	auto read_single_frame() -> uint8_t* {
+	auto read_single_frame(FrameBuffer &frame_buffer) {
 		while (av_read_frame(av_format_ctx, av_packet) >= 0) {
 			if (av_packet->stream_index != video_stream_index) {
 				av_packet_unref(av_packet);
@@ -119,7 +118,7 @@ struct VideoReader {
 			if (response < 0) {
 				fprintf(stderr, "Failed to decode packet\n");
 				av_packet_unref(av_packet);
-				return nullptr;
+				return;
 			}
 
 			response = avcodec_receive_frame(av_codec_ctx, av_frame);
@@ -131,7 +130,7 @@ struct VideoReader {
 			else if (response < 0) {
 				fprintf(stderr, "Failed to receive frame\n");
 				av_packet_unref(av_packet);
-				return nullptr;
+				return;
 			}
 
 			av_packet_unref(av_packet);
@@ -147,19 +146,19 @@ struct VideoReader {
 
 			if (!sws_scaler_ctx) {
 				fprintf(stderr, "Couldn't initialize sw scaler\n");
-				return nullptr;
+				return;
 			}
 
 			first_frame_begin_time = std::chrono::steady_clock::now();
 		}
 
-		auto frame_data_rawptr = frame_data.get();
+		auto copy_scaled_data = [this](uint8_t* frame_data_rawptr){
+			uint8_t* dest[4] = { frame_data_rawptr, nullptr, nullptr, nullptr };
+			const int dest_linesize[4] = { width * 4, 0, 0, 0 };
+			sws_scale(sws_scaler_ctx, av_frame->data, av_frame->linesize, 0, height, dest, dest_linesize);
+		};
 
-		uint8_t* dest[4] = { frame_data_rawptr, nullptr, nullptr, nullptr };
-		const int dest_linesize[4] = { width * 4, 0, 0, 0 };
-		sws_scale(sws_scaler_ctx, av_frame->data, av_frame->linesize, 0, height, dest, dest_linesize);
-
-		return frame_data_rawptr;
+		frame_buffer.write_frame(copy_scaled_data);
 	}
 };
 
