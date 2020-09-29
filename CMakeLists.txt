@@ -6,6 +6,8 @@ project(cmaketest)
 
 find_package(SDL2 CONFIG REQUIRED)
 
+find_package(libsoundio CONFIG REQUIRED)
+
 find_path( AVCODEC_INCLUDE_DIR libavcodec/avcodec.h )
 find_library(AVCODEC_LIBRARY avcodec)
 
@@ -27,7 +29,7 @@ find_library(SWRESAMPLE_LIBRARY swresample)
 find_path( SWSCALE_INCLUDE_DIR libswscale/swscale.h )
 find_library(SWSCALE_LIBRARY swscale)
 
-add_executable(cmaketest src/main.cpp "src/video_reader.hpp")
+add_executable(cmaketest src/main.cpp "src/video_reader.hpp" "src/audio_player.hpp")
 
 target_include_directories(cmaketest PRIVATE 
 	${AVCODEC_INCLUDE_DIR}
@@ -49,4 +51,6 @@ target_link_libraries(cmaketest PRIVATE
 	${AVDEVICE_LIBRARY}
 	${SWRESAMPLE_LIBRARY}
 	${SWSCALE_LIBRARY}
+	libsoundio::libsoundio 
+	libsoundio::libsoundio_shared
 )

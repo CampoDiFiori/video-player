@@ -16,15 +16,22 @@ struct VideoReader {
 	AVFormatContext* av_format_ctx = avformat_alloc_context();
 
 	AVRational time_base;
+	AVRational audio_time_base;
 
 	std::chrono::steady_clock::time_point first_frame_begin_time;
 	uint64_t frame_pst_microsec;
+
 	int8_t video_stream_index = -1;
-	AVCodecParameters* av_codec_params = nullptr;
+	int8_t audio_stream_index = -1;
+
 	AVCodec* av_codec = nullptr;
+	AVCodec* av_audio_codec = nullptr;
+
 	AVCodecContext* av_codec_ctx = nullptr;
+	AVCodecContext* av_audio_codec_ctx = nullptr;
 
 	AVFrame* av_frame = av_frame_alloc();
+	AVFrame* av_audio_frame = av_frame_alloc();
 	AVPacket* av_packet = av_packet_alloc();
 
 	SwsContext* sws_scaler_ctx = nullptr;
@@ -33,6 +40,8 @@ struct VideoReader {
 	std::unique_ptr<uint8_t[]> frame_data = nullptr;
 
 	VideoReader(const char* filename) {
+		AVCodecParameters* av_codec_params = nullptr;
+		AVCodecParameters* av_audio_codec_params = nullptr;
 
 		if (!av_frame || !av_packet) {
 			fprintf(stderr, "Couldn't allocate a packet or frame\n");
@@ -52,21 +61,27 @@ struct VideoReader {
 		for (auto i = 0; i < av_format_ctx->nb_streams; ++i) {
 			auto stream = av_format_ctx->streams[i];
 
-			av_codec_params = av_format_ctx->streams[i]->codecpar;
-			av_codec = avcodec_find_decoder(av_codec_params->codec_id);
-
-			if (!av_codec) {
-				continue;
-			}
-
-			if (av_codec_params->codec_type == AVMEDIA_TYPE_VIDEO) {
+			if (stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
 				video_stream_index = i;
 				time_base = stream->time_base; 
-				break;
+				av_codec_params = stream->codecpar;
+				av_codec = avcodec_find_decoder(av_codec_params->codec_id);
+			}
+
+			if (stream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+				audio_stream_index = i;
+				audio_time_base = stream->time_base;
+				av_audio_codec_params = stream->codecpar;
+				av_audio_codec = avcodec_find_decoder(av_audio_codec_params->codec_id); 
 			}
 		}
 
 		if (video_stream_index == -1) {
+			fprintf(stderr, "Couldn't find a video stream\n");
+			return;
+		}
+
+		if (audio_stream_index == -1) {
 			fprintf(stderr, "Couldn't find a video stream\n");
 			return;
 		}
@@ -88,6 +103,23 @@ struct VideoReader {
 			return;
 		}
 
+		av_audio_codec_ctx = avcodec_alloc_context3(av_audio_codec);
+
+		if (!av_audio_codec_ctx) {
+			fprintf(stderr, "Couldn't allocate audio AVCodecContext\n");
+			return;
+		}
+
+		if (avcodec_parameters_to_context(av_audio_codec_ctx, av_audio_codec_params) < 0) {
+			fprintf(stderr, "Couldn't initialize audio AVCodecContext\n");
+			return;
+		}
+
+		if (avcodec_open2(av_audio_codec_ctx, av_audio_codec, nullptr) < 0) {
+			fprintf(stderr, "Couldn't open audio codec\n");
+			return;
+		}
+
 		width = av_codec_params->width;
 		height = av_codec_params->height;
 		frame_data = std::make_unique<uint8_t[]>(width * height * 4);
@@ -101,29 +133,31 @@ struct VideoReader {
 		if (av_codec_ctx) avcodec_free_context(&av_codec_ctx);
 		if (av_packet) av_packet_free(&av_packet);
 		if (av_frame) av_frame_free(&av_frame);
+		if (av_audio_frame) av_frame_free(&av_audio_frame);
 		if (sws_scaler_ctx) sws_freeContext(sws_scaler_ctx);
 	}
 
-	auto read_first_frame() {
-	}
-
 	auto read_single_frame() -> uint8_t* {
+		auto read_audio_frame = false;
 		while (av_read_frame(av_format_ctx, av_packet) >= 0) {
-			if (av_packet->stream_index != video_stream_index) {
-				av_packet_unref(av_packet);
-				continue;
+			auto response = -1; 
+			
+			if (av_packet->stream_index == video_stream_index) {
+				avcodec_send_packet(av_codec_ctx, av_packet);
+				response = avcodec_receive_frame(av_codec_ctx, av_frame);
 			}
 
-			auto response = avcodec_send_packet(av_codec_ctx, av_packet);
+			if (av_packet->stream_index == audio_stream_index) {
+				avcodec_send_packet(av_audio_codec_ctx, av_packet);
+				response = avcodec_receive_frame(av_audio_codec_ctx, av_audio_frame);
+				read_audio_frame = true;
+			}
 
 			if (response < 0) {
 				fprintf(stderr, "Failed to decode packet\n");
 				av_packet_unref(av_packet);
 				return nullptr;
 			}
-
-			response = avcodec_receive_frame(av_codec_ctx, av_frame);
-
 			if (response == AVERROR(EAGAIN) || response == AVERROR_EOF) {
 				av_packet_unref(av_packet);
 				continue;
@@ -136,6 +170,10 @@ struct VideoReader {
 
 			av_packet_unref(av_packet);
 			break;
+		}
+
+		if (read_audio_frame) {
+			return nullptr;
 		}
 
 		frame_pst_microsec = (double) av_frame->pts * 1'000'000 * (double) time_base.num / (double) time_base.den; 
