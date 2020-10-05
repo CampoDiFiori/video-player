@@ -4,6 +4,8 @@ set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
 
 project(cmaketest)
 
+set (CMAKE_CXX_STANDARD 20)
+
 find_package(SDL2 CONFIG REQUIRED)
 
 find_package(libsoundio CONFIG REQUIRED)

@@ -22,7 +22,7 @@ extern "C" {
 
 int main() {
 
-	VideoReader video_reader_state("C:\\Users\\dudko\\OneDrive\\Desktop\\rotating_globe.mp4");
+	VideoReader video_reader_state("C:\\Users\\dudko\\OneDrive\\Desktop\\djanka.mp4");
 
 	if (SDL_Init(SDL_INIT_VIDEO) == -1) {
 		printf("SDL could not initialize: %s\n", SDL_GetError());
@@ -54,51 +54,7 @@ int main() {
 	std::chrono::steady_clock::time_point frame_begin_time, frame_end_time;
 	std::chrono::microseconds duration_since_start;
 
-	int err;
-    struct SoundIo *soundio = soundio_create();
-    if (!soundio) {
-        fprintf(stderr, "out of memory\n");
-        return 1;
-    }
-
-    if ((err = soundio_connect(soundio))) {
-        fprintf(stderr, "error connecting: %s", soundio_strerror(err));
-        return 1;
-    }
-
-    soundio_flush_events(soundio);
-
-    int default_out_device_index = soundio_default_output_device_index(soundio);
-    if (default_out_device_index < 0) {
-        fprintf(stderr, "no output device found");
-        return 1;
-    }
-
-    struct SoundIoDevice *device = soundio_get_output_device(soundio, default_out_device_index);
-    if (!device) {
-        fprintf(stderr, "out of memory");
-        return 1;
-    }
-
-    fprintf(stderr, "Output device: %s\n", device->name);
-
-    struct SoundIoOutStream *outstream = soundio_outstream_create(device);
-    outstream->format = SoundIoFormatFloat32NE;
-    outstream->write_callback = write_callback;
-
-    if ((err = soundio_outstream_open(outstream))) {
-        fprintf(stderr, "unable to open device: %s", soundio_strerror(err));
-        return 1;
-    }
-
-    if (outstream->layout_error)
-        fprintf(stderr, "unable to set channel layout: %s\n", soundio_strerror(outstream->layout_error));
-
-    if ((err = soundio_outstream_start(outstream))) {
-        fprintf(stderr, "unable to start device: %s", soundio_strerror(err));
-        return 1;
-    }
-
+	AudioBuffer audio_buffer;
 
 	while (!quit) {
 
@@ -106,7 +62,7 @@ int main() {
 
 		// frame_begin_time = std::chrono::steady_clock::now();
 
-		video_frame_data = video_reader_state.read_single_frame();
+		video_frame_data = video_reader_state.read_single_frame(audio_buffer);
 
 		if (!video_frame_data) {
 			continue;
@@ -143,19 +99,19 @@ int main() {
 		duration_since_start = std::chrono::duration_cast<std::chrono::microseconds>(frame_end_time - video_reader_state.first_frame_begin_time);
 
 		auto sleep_time = std::chrono::microseconds(video_reader_state.frame_pst_microsec) - duration_since_start;
-		std::this_thread::sleep_for(sleep_time);
+		// std::this_thread::sleep_for(sleep_time);
 
-		if (SDL_PollEvent(&e) != 0) {
+		while (SDL_PollEvent(&e) != 0) {
 			if (e.type == SDL_QUIT) {
 				quit = true;
 			}
 		}
 	}
 
+	std::thread audio_player(init_audio_player, audio_buffer);
+
+	audio_player.join();
+
 	SDL_DestroyWindow(sdl_window);
 	SDL_Quit();
-
-	soundio_outstream_destroy(outstream);
-    soundio_device_unref(device);
-    soundio_destroy(soundio);
 }

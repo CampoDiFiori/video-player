@@ -11,6 +11,7 @@ extern "C" {
 
 #include <memory>
 #include <chrono>
+#include "audio_player.hpp"
 
 struct VideoReader {
 	AVFormatContext* av_format_ctx = avformat_alloc_context();
@@ -137,7 +138,7 @@ struct VideoReader {
 		if (sws_scaler_ctx) sws_freeContext(sws_scaler_ctx);
 	}
 
-	auto read_single_frame() -> uint8_t* {
+	auto read_single_frame(AudioBuffer &audio_buffer) -> uint8_t* {
 		auto read_audio_frame = false;
 		while (av_read_frame(av_format_ctx, av_packet) >= 0) {
 			auto response = -1; 
@@ -150,7 +151,13 @@ struct VideoReader {
 			if (av_packet->stream_index == audio_stream_index) {
 				avcodec_send_packet(av_audio_codec_ctx, av_packet);
 				response = avcodec_receive_frame(av_audio_codec_ctx, av_audio_frame);
+				//	get this av_audio_frame to audio player somehow
 				read_audio_frame = true;
+				auto lch_frame_data = av_audio_frame->data[0];
+				auto rch_frame_data = av_audio_frame->data[1];
+
+				audio_buffer.lch_data.insert(audio_buffer.lch_data.end(), lch_frame_data, lch_frame_data + av_audio_frame->linesize[0] / 2);
+				audio_buffer.rch_data.insert(audio_buffer.rch_data.end(), rch_frame_data, rch_frame_data + av_audio_frame->linesize[0] / 2);
 			}
 
 			if (response < 0) {
